@@ -1,0 +1,5 @@
+# Tick Up — dependências
+flet==0.85.3      # UI: mobile + web + desktop (mesma base de código)
+
+# Desenvolvimento / testes
+pytest>=9

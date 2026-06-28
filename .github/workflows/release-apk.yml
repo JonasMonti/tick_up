@@ -1,0 +1,105 @@
+name: Build & Release Android APK
+
+# Constrói o APK nativo a partir da base de código Flet e publica-o numa
+# Release do GitHub (a "página de download" que se abre no telemóvel).
+#
+#   • push de uma tag  v*   -> constrói + cria a Release com o .apk anexado
+#   • execução manual (workflow_dispatch) -> constrói + guarda como artifact
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flet
+        run: |
+          python -m pip install --upgrade pip
+          pip install "flet[all]==0.85.3"
+
+      - name: Derive version from tag
+        id: ver
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          if [[ "$REF" == v* ]]; then
+            echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.1.0" >> "$GITHUB_OUTPUT"
+          fi
+          echo "build_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
+        run: |
+          flet build apk \
+            --yes \
+            --verbose \
+            --build-version "${{ steps.ver.outputs.version }}" \
+            --build-number "${{ steps.ver.outputs.build_number }}" \
+            --exclude .git .github tests .pytest_cache .claude .venv build storage
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK="$(find build -name '*.apk' | head -n1)"
+          if [[ -z "$APK" ]]; then
+            echo "::error::APK não encontrado em build/"
+            find build -maxdepth 3 -type f | sort
+            exit 1
+          fi
+          DEST="TickUp-${{ steps.ver.outputs.version }}.apk"
+          cp "$APK" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+          ls -lh "$DEST"
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tickup-apk
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Tick Up ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: ${{ steps.apk.outputs.path }}
+          fail_on_unmatched_files: true
+          body: |
+            ## 📱 Tick Up ${{ github.ref_name }} — APK Android
+
+            Primeira versão nativa para Android. Lista de tarefas do dia-a-dia,
+            offline e single-user (Hoje · Próximos · Inbox · Concluídos).
+
+            ### Como instalar no telemóvel
+            1. Descarrega o ficheiro **`${{ steps.apk.outputs.path }}`** abaixo.
+            2. Abre-o no Android e permite **"instalar de fontes desconhecidas"**
+               quando for pedido.
+            3. Toca em **Instalar**.
+
+            > APK não assinado para distribuição na loja — é uma build de teste.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

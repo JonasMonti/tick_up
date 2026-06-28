@@ -1,0 +1,35 @@
+[project]
+name = "tickup"
+version = "0.1.0"
+description = "Tick Up — app de lista de tarefas do dia-a-dia (Flet: mobile + web)"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# --- Empacotamento Flet (mobile + desktop) ---------------------------------
+# Usado por `flet build apk|aab|ipa`. O entry-point é o `main.py` da raiz, que
+# reutiliza a UI de `app/main.py`.
+[tool.flet]
+product = "Tick Up"
+org = "pt.securnet"
+bundle_id = "pt.securnet.tickup"
+company = "Securnet"
+copyright = "© 2026 Tick Up"
+
+[tool.flet.app]
+path = "."
+module = "main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "-q"
