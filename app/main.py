@@ -251,10 +251,13 @@ class TickUpApp:
         )
         page.appbar = self.appbar
 
+        # IMPORTANTE: a NavigationBar tem de ter ≥2 destinos já no primeiro
+        # render (o Flutter rebenta com a barra vazia → ecrã preto), por isso
+        # construímos os destinos aqui e não só no refresh().
         self.nav = ft.NavigationBar(
             selected_index=0,
             on_change=self._on_nav,
-            destinations=[],
+            destinations=self._nav_destinations(),
         )
         page.navigation_bar = self.nav
 
@@ -279,6 +282,7 @@ class TickUpApp:
                 expand=True,
             )
         )
+        self._build_drawer()  # nunca deixar o drawer vazio antes do primeiro render
         self.refresh()
 
     # --- menu lateral ----------------------------------------------------------

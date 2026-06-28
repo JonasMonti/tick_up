@@ -84,7 +84,9 @@ flet build ipa                  # iOS (só em macOS + Xcode)
 
 ## Versões
 
-Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH`). Versão atual: **0.2.0**.
+Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH`). Versão atual: **0.2.1**.
 
+- **0.2.1** — corrige ecrã preto no arranque (NavigationBar tem de ter destinos
+  no primeiro render).
 - **0.2.0** — UI remodelada + qualidade de vida (edição, listas, pesquisa, undo, badges).
 - **0.1.0** — núcleo + primeira release APK.
