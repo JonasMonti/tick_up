@@ -121,11 +121,11 @@
           <p class="lead">Organiza o dia-a-dia com prioridades e datas. Vistas inteligentes — Hoje, Próximos, Inbox — e tudo <b>offline</b>, sem conta nem servidor.</p>
 
           <div class="cta">
-            <a class="btn btn-primary" id="download" href="https://github.com/JonasMonti/Tick_Up/releases/latest">
+            <a class="btn btn-primary" id="download" href="https://github.com/JonasMonti/tick_up/releases/latest">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
               <span>Descarregar para Android<small id="dl-meta">APK · última versão</small></span>
             </a>
-            <a class="btn btn-ghost" href="https://github.com/JonasMonti/Tick_Up/releases">Todas as versões</a>
+            <a class="btn btn-ghost" href="https://github.com/JonasMonti/tick_up/releases">Todas as versões</a>
           </div>
           <p class="meta">Versão <b id="ver">0.1.0</b> · <span id="size">APK</span> · Android 5.0+ · grátis e sem anúncios</p>
         </div>
@@ -179,7 +179,7 @@
   <footer>
     <div class="wrap fbar">
       <span>Tick Up — feito com <a href="https://flet.dev">Flet</a> (Python). Offline & open source.</span>
-      <span><a href="https://github.com/JonasMonti/Tick_Up">Código no GitHub →</a></span>
+      <span><a href="https://github.com/JonasMonti/tick_up">Código no GitHub →</a></span>
     </div>
   </footer>
 
@@ -187,7 +187,7 @@
     // Vai buscar a última release e atualiza o botão/versão automaticamente.
     (async () => {
       try {
-        const r = await fetch("https://api.github.com/repos/JonasMonti/Tick_Up/releases/latest");
+        const r = await fetch("https://api.github.com/repos/JonasMonti/tick_up/releases/latest");
         if (!r.ok) return;
         const rel = await r.json();
         const apk = (rel.assets || []).find(a => a.name.toLowerCase().endsWith(".apk"));
