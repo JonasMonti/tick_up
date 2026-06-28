@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tick Up — lista de tarefas para Android</title>
+  <meta name="description" content="Tick Up: a tua lista de tarefas do dia-a-dia. Offline, rápida e simples. Descarrega o APK para Android.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%234f46e5'/%3E%3Cpath d='M28 52l16 16 30-34' fill='none' stroke='white' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <style>
+    :root{
+      --indigo:#4f46e5; --indigo-dark:#3730a3; --indigo-soft:#eef2ff;
+      --ink:#1e1b2e; --muted:#6b6880; --line:#e7e5f0; --bg:#f7f7fb;
+      --radius:18px; --shadow:0 10px 40px -12px rgba(79,70,229,.35);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html{-webkit-text-size-adjust:100%}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      color:var(--ink); background:var(--bg); line-height:1.55;
+      -webkit-font-smoothing:antialiased;
+    }
+    a{color:inherit}
+    .wrap{max-width:960px;margin:0 auto;padding:0 22px}
+
+    /* ---- hero ---- */
+    header.hero{
+      background:
+        radial-gradient(900px 500px at 80% -10%, rgba(79,70,229,.18), transparent 60%),
+        radial-gradient(700px 400px at -10% 10%, rgba(99,102,241,.14), transparent 55%);
+      padding:64px 0 40px;
+    }
+    .brand{display:flex;align-items:center;gap:12px;font-weight:800;font-size:20px;letter-spacing:-.02em}
+    .logo{width:40px;height:40px;border-radius:11px;background:linear-gradient(150deg,var(--indigo),var(--indigo-dark));
+      display:grid;place-items:center;box-shadow:var(--shadow);flex:0 0 auto}
+    .logo svg{width:24px;height:24px}
+    .hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:center;margin-top:48px}
+    h1{font-size:clamp(34px,5.5vw,52px);line-height:1.05;letter-spacing:-.03em;font-weight:850}
+    h1 .accent{background:linear-gradient(120deg,var(--indigo),#8b5cf6);-webkit-background-clip:text;background-clip:text;color:transparent}
+    .lead{margin-top:18px;font-size:18px;color:var(--muted);max-width:42ch}
+
+    .cta{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:30px}
+    .btn{
+      display:inline-flex;align-items:center;gap:10px;font-weight:700;font-size:16px;
+      padding:15px 26px;border-radius:14px;text-decoration:none;border:1px solid transparent;
+      transition:transform .12s ease, box-shadow .12s ease;
+    }
+    .btn-primary{background:linear-gradient(150deg,var(--indigo),var(--indigo-dark));color:#fff;box-shadow:var(--shadow)}
+    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 16px 44px -10px rgba(79,70,229,.5)}
+    .btn-primary:active{transform:translateY(0)}
+    .btn-ghost{background:#fff;border-color:var(--line);color:var(--ink)}
+    .btn-ghost:hover{border-color:var(--indigo);color:var(--indigo)}
+    .btn small{display:block;font-weight:500;font-size:12px;opacity:.85;margin-top:1px}
+    .meta{margin-top:14px;font-size:13px;color:var(--muted)}
+    .meta b{color:var(--ink)}
+
+    /* ---- phone mockup ---- */
+    .phone{justify-self:center;width:248px;height:506px;border-radius:36px;background:#0f0d1a;
+      padding:11px;box-shadow:0 30px 70px -20px rgba(30,27,46,.55);position:relative}
+    .phone::before{content:"";position:absolute;top:18px;left:50%;transform:translateX(-50%);
+      width:74px;height:7px;border-radius:6px;background:#2a2740;z-index:3}
+    .screen{width:100%;height:100%;border-radius:27px;background:#fff;overflow:hidden;display:flex;flex-direction:column}
+    .s-top{background:var(--indigo-soft);padding:30px 18px 14px;border-bottom:1px solid var(--line)}
+    .s-top .t{font-weight:800;font-size:19px;letter-spacing:-.02em}
+    .s-top .d{color:var(--muted);font-size:12px;margin-top:2px}
+    .s-list{flex:1;padding:8px 0;overflow:hidden}
+    .row{display:flex;align-items:center;gap:11px;padding:11px 18px}
+    .dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);flex:0 0 auto}
+    .dot.p1{border-color:#ef4444}.dot.p2{border-color:#f59e0b}.dot.p3{border-color:#3b82f6}
+    .dot.done{background:var(--indigo);border-color:var(--indigo);position:relative}
+    .dot.done::after{content:"";position:absolute;inset:0;margin:auto;width:8px;height:4px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+    .row .txt{font-size:14px}
+    .row.is-done .txt{color:var(--muted);text-decoration:line-through}
+    .row .tag{margin-left:auto;font-size:11px;color:var(--indigo);font-weight:600}
+    .row .tag.late{color:#ef4444}
+    .s-nav{display:flex;border-top:1px solid var(--line);padding:9px 0}
+    .s-nav span{flex:1;text-align:center;font-size:10px;color:var(--muted)}
+    .s-nav span.on{color:var(--indigo);font-weight:700}
+
+    /* ---- sections ---- */
+    section{padding:54px 0}
+    h2{font-size:26px;letter-spacing:-.02em;font-weight:800;margin-bottom:6px}
+    .sub{color:var(--muted);margin-bottom:28px}
+    .features{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+    .card .ic{width:40px;height:40px;border-radius:11px;background:var(--indigo-soft);display:grid;place-items:center;margin-bottom:13px;font-size:20px}
+    .card h3{font-size:16px;margin-bottom:5px}
+    .card p{color:var(--muted);font-size:14px}
+
+    .steps{counter-reset:step;display:grid;gap:14px;max-width:640px}
+    .step{display:flex;gap:16px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+    .step::before{counter-increment:step;content:counter(step);flex:0 0 auto;width:30px;height:30px;border-radius:9px;
+      background:linear-gradient(150deg,var(--indigo),var(--indigo-dark));color:#fff;font-weight:800;display:grid;place-items:center}
+    .step p{font-size:15px}.step p b{font-weight:700}
+    .note{margin-top:18px;font-size:13px;color:var(--muted);background:var(--indigo-soft);border-radius:12px;padding:13px 16px}
+
+    footer{border-top:1px solid var(--line);padding:34px 0;color:var(--muted);font-size:14px}
+    footer a{color:var(--indigo);text-decoration:none;font-weight:600}
+    footer .fbar{display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:center}
+
+    @media (max-width:760px){
+      .hero-grid{grid-template-columns:1fr;gap:36px}
+      .lead{max-width:none}
+      .features{grid-template-columns:1fr}
+      .phone{order:-1}
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">
+          <svg viewBox="0 0 100 100"><path d="M28 52l16 16 30-34" fill="none" stroke="white" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        Tick Up
+      </div>
+
+      <div class="hero-grid">
+        <div>
+          <h1>A tua lista de tarefas, <span class="accent">feita simples.</span></h1>
+          <p class="lead">Organiza o dia-a-dia com prioridades e datas. Vistas inteligentes — Hoje, Próximos, Inbox — e tudo <b>offline</b>, sem conta nem servidor.</p>
+
+          <div class="cta">
+            <a class="btn btn-primary" id="download" href="https://github.com/JonasMonti/Tick_Up/releases/latest">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+              <span>Descarregar para Android<small id="dl-meta">APK · última versão</small></span>
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/JonasMonti/Tick_Up/releases">Todas as versões</a>
+          </div>
+          <p class="meta">Versão <b id="ver">0.1.0</b> · <span id="size">APK</span> · Android 5.0+ · grátis e sem anúncios</p>
+        </div>
+
+        <div class="phone" aria-hidden="true">
+          <div class="screen">
+            <div class="s-top">
+              <div class="t">Hoje</div>
+              <div class="d">terça-feira, 28 jun</div>
+            </div>
+            <div class="s-list">
+              <div class="row"><span class="dot p1"></span><span class="txt">Enviar relatório</span><span class="tag late">Atrasada</span></div>
+              <div class="row"><span class="dot p2"></span><span class="txt">Comprar pão</span><span class="tag">Hoje</span></div>
+              <div class="row"><span class="dot p3"></span><span class="txt">Ligar ao João</span></div>
+              <div class="row is-done"><span class="dot done"></span><span class="txt">Treino matinal</span></div>
+              <div class="row"><span class="dot"></span><span class="txt">Planear semana</span><span class="tag">Amanhã</span></div>
+            </div>
+            <div class="s-nav"><span class="on">Hoje</span><span>Próximos</span><span>Inbox</span><span>Concluídos</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="wrap">
+      <h2>Tudo o que precisas, nada a mais</h2>
+      <p class="sub">Inspirada no Todoist, Things 3 e Microsoft To Do — mas leve e tua.</p>
+      <div class="features">
+        <div class="card"><div class="ic">📅</div><h3>Vistas inteligentes</h3><p>Hoje, Próximos, Atrasados, Inbox e Concluídos — sempre a tarefa certa à frente.</p></div>
+        <div class="card"><div class="ic">🚩</div><h3>Prioridades P1–P4</h3><p>Marca o que é urgente ao estilo Todoist e foca-te no que importa.</p></div>
+        <div class="card"><div class="ic">📴</div><h3>100% offline</h3><p>Os dados ficam no teu telemóvel. Sem conta, sem nuvem, sem rastreio.</p></div>
+        <div class="card"><div class="ic">⚡</div><h3>Adição rápida</h3><p>Escreve e carrega em Enter. Toca para concluir, desliza para apagar.</p></div>
+        <div class="card"><div class="ic">🗓️</div><h3>Datas limite</h3><p>Define quando algo é para estar feito e vê o que está atrasado.</p></div>
+        <div class="card"><div class="ic">🌗</div><h3>Tema claro/escuro</h3><p>Segue o tema do sistema automaticamente. Confortável a qualquer hora.</p></div>
+      </div>
+    </section>
+
+    <section class="wrap" style="padding-top:0">
+      <h2>Instalar no telemóvel</h2>
+      <p class="sub">Leva menos de um minuto.</p>
+      <div class="steps">
+        <div class="step"><p><b>Descarrega o APK</b> com o botão lá em cima (ou abre esta página diretamente no telemóvel).</p></div>
+        <div class="step"><p>Abre o ficheiro. O Android vai pedir para <b>permitir instalação de fontes desconhecidas</b> — aceita.</p></div>
+        <div class="step"><p>Toca em <b>Instalar</b> e abre o <b>Tick Up</b>. Pronto. ✅</p></div>
+      </div>
+      <p class="note">ℹ️ É uma build de teste, não assinada para a Play Store — por isso o aviso de "fontes desconhecidas". É seguro: o código é aberto e o APK é compilado automaticamente no GitHub.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap fbar">
+      <span>Tick Up — feito com <a href="https://flet.dev">Flet</a> (Python). Offline & open source.</span>
+      <span><a href="https://github.com/JonasMonti/Tick_Up">Código no GitHub →</a></span>
+    </div>
+  </footer>
+
+  <script>
+    // Vai buscar a última release e atualiza o botão/versão automaticamente.
+    (async () => {
+      try {
+        const r = await fetch("https://api.github.com/repos/JonasMonti/Tick_Up/releases/latest");
+        if (!r.ok) return;
+        const rel = await r.json();
+        const apk = (rel.assets || []).find(a => a.name.toLowerCase().endsWith(".apk"));
+        const ver = (rel.tag_name || "").replace(/^v/, "");
+        if (ver) document.getElementById("ver").textContent = ver;
+        if (apk) {
+          document.getElementById("download").href = apk.browser_download_url;
+          const mb = (apk.size / 1048576).toFixed(0);
+          document.getElementById("dl-meta").textContent = `${apk.name} · ${mb} MB`;
+          document.getElementById("size").textContent = `${mb} MB`;
+        }
+      } catch (e) { /* mantém os valores por defeito */ }
+    })();
+  </script>
+</body>
+</html>
