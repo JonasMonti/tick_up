@@ -74,11 +74,17 @@ flet build ipa                  # iOS (só em macOS + Xcode)
 
 ## Estado atual
 
-- [x] Núcleo de domínio (`models`, `store`, `views`) + 55 testes a passar.
-- [ ] UI Flet (mobile-first): vistas, quick-add, swipe-to-complete.
-- [ ] Empacotamento mobile (apk/ipa).
+- [x] Núcleo de domínio (`models`, `store`, `views`) + testes a passar.
+- [x] UI Flet (mobile-first): vistas com secções, edição em sheet, prioridade/data
+      na criação, anular ao apagar, menu lateral de listas, pesquisa, badges.
+- [x] Empacotamento mobile (apk) via GitHub Actions (`.github/workflows/release-apk.yml`).
+- [x] Página de download (GitHub Pages, `docs/`).
+- [ ] Assinatura para a Play Store (keystore).
 - [ ] Site próprio (deploy da versão web do Flet).
 
 ## Versões
 
-Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH`). Versão atual: **0.1.0** (núcleo).
+Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH`). Versão atual: **0.2.0**.
+
+- **0.2.0** — UI remodelada + qualidade de vida (edição, listas, pesquisa, undo, badges).
+- **0.1.0** — núcleo + primeira release APK.

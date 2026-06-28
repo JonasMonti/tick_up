@@ -86,3 +86,75 @@ def test_clear_completed(ctrl):
     ctrl.add_quick("b")
     ctrl.toggle(a.id)
     assert ctrl.clear_completed() == 1
+
+
+# --- vistas adicionais --------------------------------------------------------
+def test_overdue_view(ctrl):
+    ctrl.set_view("inbox")
+    t = ctrl.add_quick("velha", due_date=date(2026, 6, 1))  # antes de TODAY
+    ctrl.set_view("overdue")
+    assert t in ctrl.visible_tasks()
+
+
+def test_overdue_in_today_splits_sections(ctrl):
+    late = ctrl.add_quick("atrasada", due_date=date(2026, 6, 1))
+    hoje = ctrl.add_quick("hoje")  # due = TODAY na vista Hoje
+    atrasadas, today_tasks = ctrl.overdue_in_today()
+    assert late in atrasadas and hoje in today_tasks
+
+
+# --- listas / vista de lista --------------------------------------------------
+def test_list_view_filters_and_add_assigns_list(ctrl):
+    lst = ctrl.add_list("Trabalho")
+    ctrl.set_list_view(lst.id)
+    assert ctrl.current_view == "list" and ctrl.view_title() == "Trabalho"
+    t = ctrl.add_quick("reunião")
+    assert t.list_id == lst.id
+    assert t in ctrl.visible_tasks()
+
+
+def test_delete_list_resets_view_to_inbox(ctrl):
+    lst = ctrl.add_list("Temp")
+    ctrl.set_list_view(lst.id)
+    ctrl.delete_list(lst.id)
+    assert ctrl.current_view == "inbox"
+
+
+def test_set_view_clears_list_and_query(ctrl):
+    lst = ctrl.add_list("L")
+    ctrl.set_list_view(lst.id)
+    ctrl.set_view("today")
+    assert ctrl.list_id is None and ctrl.query == ""
+
+
+# --- edição -------------------------------------------------------------------
+def test_update_changes_and_persists(tmp_path):
+    path = tmp_path / "tickup.json"
+    c1 = AppController(path, today_provider=lambda: TODAY)
+    t = c1.add_quick("rascunho")
+    c1.update(t.id, title="Final", priority=Priority.URGENT, notes="detalhes")
+    c2 = AppController(path, today_provider=lambda: TODAY)
+    saved = c2.store.get_task(t.id)
+    assert saved.title == "Final" and saved.priority == Priority.URGENT and saved.notes == "detalhes"
+
+
+# --- pesquisa -----------------------------------------------------------------
+def test_search_view(ctrl):
+    ctrl.add_quick("Comprar pão")
+    ctrl.add_quick("Ligar à Ana")
+    ctrl.set_search("pão")
+    titles = [t.title for t in ctrl.visible_tasks()]
+    assert titles == ["Comprar pão"]
+
+
+# --- anular apagar ------------------------------------------------------------
+def test_undo_delete_restores_task(ctrl):
+    t = ctrl.add_quick("apagar-me")
+    ctrl.delete(t.id)
+    assert ctrl.store.get_task(t.id) is None
+    restored = ctrl.undo_delete()
+    assert restored is not None and ctrl.store.get_task(t.id) is not None
+
+
+def test_undo_delete_without_deletion_returns_none(ctrl):
+    assert ctrl.undo_delete() is None

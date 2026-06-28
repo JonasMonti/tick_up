@@ -126,6 +126,18 @@ class TaskStore:
         self._require_task(task_id)
         del self._tasks[task_id]
 
+    def restore_task(self, task: Task) -> Task:
+        """Reinsere uma tarefa previamente removida (suporta o 'anular').
+
+        Idempotente: se já existir uma tarefa com o mesmo id, devolve-a sem
+        alterações. Preserva o id, a ordem e o estado original da tarefa.
+        """
+        existing = self._tasks.get(task.id)
+        if existing is not None:
+            return existing
+        self._tasks[task.id] = task
+        return task
+
     def clear_completed(self) -> int:
         """Remove todas as tarefas concluídas. Devolve quantas foram removidas."""
         done = [t.id for t in self._tasks.values() if t.completed]

@@ -1,6 +1,6 @@
 [project]
 name = "tickup"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tick Up — app de lista de tarefas do dia-a-dia (Flet: mobile + web)"
 requires-python = ">=3.11"
 readme = "README.md"

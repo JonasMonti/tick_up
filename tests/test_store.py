@@ -57,6 +57,23 @@ def test_delete_missing_list_raises(store):
         store.delete_list("nao-existe")
 
 
+def test_restore_task_reinserts_exact_task(store):
+    t = store.add_task("Recuperar", priority=Priority.HIGH)
+    store.complete_task(t.id)
+    store.delete_task(t.id)
+    assert store.get_task(t.id) is None
+    restored = store.restore_task(t)
+    assert restored is t
+    again = store.get_task(t.id)
+    assert again is t and again.completed and again.priority == Priority.HIGH
+
+
+def test_restore_task_is_idempotent(store):
+    t = store.add_task("X")
+    assert store.restore_task(t) is t  # já existe -> devolve o atual sem duplicar
+    assert len(store.tasks()) == 1
+
+
 # --- tarefas: criação ---------------------------------------------------------
 def test_add_task_defaults_to_inbox(store):
     t = store.add_task("Comprar leite")
