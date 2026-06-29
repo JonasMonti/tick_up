@@ -61,6 +61,18 @@ def test_reopen_clears_state():
     assert t.completed_at is None
 
 
+def test_completed_date_none_when_active():
+    assert Task(title="X").completed_date() is None
+
+
+def test_completed_date_is_local_day():
+    # 23:30 UTC pode cair noutro dia local; comparamos com a conversão local.
+    when = datetime(2026, 6, 27, 23, 30, tzinfo=timezone.utc)
+    t = Task(title="X")
+    t.complete(when=when)
+    assert t.completed_date() == when.astimezone().date()
+
+
 # --- Task: datas --------------------------------------------------------------
 def test_is_overdue_true_for_past_due():
     t = Task(title="X", due_date=date(2026, 6, 20))

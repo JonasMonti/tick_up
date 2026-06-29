@@ -123,6 +123,16 @@ class Task:
     def is_due_today(self, today: date) -> bool:
         return not self.completed and self.due_date == today
 
+    def completed_date(self) -> date | None:
+        """Dia (na hora local) em que a tarefa foi concluída, ou None se ativa.
+
+        `completed_at` é guardado em UTC; aqui converte-se para a hora local para
+        que o board e o calendário agrupem as conclusões pelo dia "do utilizador".
+        """
+        if self.completed_at is None:
+            return None
+        return self.completed_at.astimezone().date()
+
     # --- serialização ---------------------------------------------------------
     def to_dict(self) -> dict:
         return {

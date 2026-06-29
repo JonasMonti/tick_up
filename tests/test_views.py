@@ -1,5 +1,5 @@
 """Testes das vistas inteligentes (Hoje, Próximos, Atrasados, etc.)."""
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -9,10 +9,11 @@ from tickup.models import Priority, Task
 TODAY = date(2026, 6, 27)
 
 
-def make(title, *, due=None, prio=Priority.NONE, list_id=None, done=False, order=0):
+def make(title, *, due=None, prio=Priority.NONE, list_id=None, done=False, order=0,
+         completed_at=None):
     t = Task(title=title, due_date=due, priority=prio, list_id=list_id, order=order)
-    if done:
-        t.complete()
+    if done or completed_at is not None:
+        t.complete(when=completed_at)
     return t
 
 
@@ -94,6 +95,54 @@ def test_completed_most_recent_first():
     active = make("ativa")
     result = views.completed([first, second, active])
     assert result == [second, first]
+
+
+# --- board --------------------------------------------------------------------
+def test_board_shows_all_active_date_first_undated_last():
+    overdue = make("atrasada", due=date(2026, 6, 1))
+    today_t = make("hoje", due=TODAY)
+    future = make("futuro", due=date(2026, 7, 10))
+    none = make("sem data")
+    done = make("feita", due=TODAY, done=True)
+    result = views.board([none, future, today_t, overdue, done])
+    assert result == [overdue, today_t, future, none]  # por data, sem-data por último
+    assert done not in result  # concluídas não aparecem no board
+
+
+def test_board_filters_by_group():
+    a = make("a", list_id="L1")
+    b = make("b", list_id="L2")
+    inbox = make("c")
+    assert views.board([a, b, inbox], list_id="L1") == [a]
+    assert views.board([a, b, inbox], list_id=None) == [inbox]  # sem grupo
+    assert set(views.board([a, b, inbox])) == {a, b, inbox}  # ALL_GROUPS = todos
+
+
+# --- concluídas num dia / por dia ---------------------------------------------
+def _at(y, m, d, h=12):
+    return datetime(y, m, d, h, tzinfo=timezone.utc)
+
+
+def test_completed_on_matches_local_day_and_group():
+    on_day = make("feita hoje", completed_at=_at(2026, 6, 27))
+    other_day = make("feita ontem", completed_at=_at(2026, 6, 26))
+    grouped = make("feita grupo", list_id="L1", completed_at=_at(2026, 6, 27))
+    active = make("ativa")
+    tasks = [on_day, other_day, grouped, active]
+    assert set(views.completed_on(tasks, date(2026, 6, 27))) == {on_day, grouped}
+    assert views.completed_on(tasks, date(2026, 6, 27), list_id="L1") == [grouped]
+
+
+def test_completed_by_day_groups_within_month():
+    a = make("a", completed_at=_at(2026, 6, 1))
+    b = make("b", completed_at=_at(2026, 6, 1))
+    c = make("c", completed_at=_at(2026, 6, 15))
+    other_month = make("d", completed_at=_at(2026, 5, 30))
+    active = make("ativa")
+    groups = views.completed_by_day([a, b, c, other_month, active], 2026, 6)
+    assert set(groups[date(2026, 6, 1)]) == {a, b}
+    assert groups[date(2026, 6, 15)] == [c]
+    assert date(2026, 5, 30) not in groups
 
 
 # --- pesquisa -----------------------------------------------------------------

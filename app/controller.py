@@ -2,8 +2,13 @@
 
 Não importa Flet: contém apenas estado e lógica de apresentação, por isso é
 testável sem interface gráfica. A UI (`main.py`) cria um `AppController`, lê
-`visible_tasks()`/`counts()` e chama os métodos de mutação (que persistem
-automaticamente).
+`visible_tasks()`/`completed_today()`/`calendar_days()` e chama os métodos de
+mutação (que persistem automaticamente).
+
+Modelo (v0.3.0): dois ecrãs apenas —
+  • **Board** (`current_view == "board"`): todas as tarefas por fazer + as feitas
+    hoje, opcionalmente filtradas por grupo (`group_filter`).
+  • **Calendário** (`current_view == "calendar"`): histórico das concluídas por dia.
 """
 from __future__ import annotations
 
@@ -14,21 +19,14 @@ from tickup import views
 from tickup.models import Priority, Task, TaskList
 from tickup.store import TaskStore
 
-# Vistas inteligentes (chave interna -> rótulo em pt-PT).
-SMART_VIEWS = {
-    "today": "Hoje",
-    "upcoming": "Próximos",
-    "overdue": "Atrasadas",
-    "inbox": "Inbox",
-    "completed": "Concluídos",
-}
-
-# Subconjunto mostrado na barra de navegação inferior (as restantes vistas e as
-# listas do utilizador são acedidas pelo menu lateral).
-VIEWS = {key: SMART_VIEWS[key] for key in ("today", "upcoming", "inbox", "completed")}
+# Sentinela "todos os grupos" para o filtro do board (ver tickup.views.ALL_GROUPS).
+ALL_GROUPS = views.ALL_GROUPS
 
 # Sentinela para distinguir "não passou data" de "passou data = None".
 _UNSET = object()
+
+# Os dois ecrãs da app.
+VIEWS = ("board", "calendar")
 
 
 class AppController:
@@ -36,55 +34,52 @@ class AppController:
         self.data_path = Path(data_path)
         self._today_provider = today_provider
         self.store = TaskStore.load(self.data_path)
-        self.current_view = "today"
-        self.list_id: str | None = None  # lista ativa quando current_view == "list"
-        self.query: str = ""             # termo ativo quando current_view == "search"
+        self.current_view = "board"
+        # Filtro de grupo do board: ALL_GROUPS | None (sem grupo) | list_id.
+        self.group_filter = ALL_GROUPS
+        self.query: str = ""  # pesquisa não-intrusiva no board
         self._last_deleted: Task | None = None
+        # Mês visível no calendário (default: mês de hoje).
+        ref = self.today()
+        self.calendar_year = ref.year
+        self.calendar_month = ref.month
 
     # --- consulta -------------------------------------------------------------
     def today(self) -> date:
         return self._today_provider()
 
     def visible_tasks(self) -> list[Task]:
-        tasks = self.store.tasks()
-        ref = self.today()
-        view = self.current_view
-        if view == "today":
-            return views.today(tasks, ref)
-        if view == "upcoming":
-            return views.upcoming(tasks, ref)
-        if view == "overdue":
-            return views.overdue(tasks, ref)
-        if view == "inbox":
-            return views.inbox(tasks)
-        if view == "completed":
-            return views.completed(tasks)
-        if view == "list":
-            return views.by_list(tasks, self.list_id)
-        if view == "search":
-            return views.search(tasks, self.query)
-        raise ValueError(f"Vista desconhecida: {view}")
+        """Tarefas por fazer do board (filtradas por grupo e, se houver, pesquisa)."""
+        tasks = views.board(self.store.tasks(), list_id=self.group_filter)
+        q = self.query.strip().lower()
+        if q:
+            tasks = [t for t in tasks if q in t.title.lower() or q in t.notes.lower()]
+        return tasks
 
-    def overdue_in_today(self) -> tuple[list[Task], list[Task]]:
-        """Divide a vista 'Hoje' em (atrasadas, mesmo-dia) para mostrar secções."""
-        ref = self.today()
-        atrasadas = [t for t in self.visible_tasks() if t.due_date and t.due_date < ref]
-        hoje = [t for t in self.visible_tasks() if t.due_date == ref]
-        return atrasadas, hoje
+    def completed_today(self) -> list[Task]:
+        """Concluídas hoje (secção 'Feitas hoje' do board). Saem ao virar o dia."""
+        return views.completed_on(
+            self.store.tasks(), self.today(), list_id=self.group_filter
+        )
 
-    def counts(self) -> dict[str, int]:
-        return views.counts(self.store.tasks(), self.today())
+    def calendar_days(self) -> dict[date, list[Task]]:
+        """Concluídas do mês visível, agrupadas por dia (para o calendário)."""
+        return views.completed_by_day(
+            self.store.tasks(),
+            self.calendar_year,
+            self.calendar_month,
+            list_id=self.group_filter,
+        )
+
+    def completed_on(self, day: date) -> list[Task]:
+        """Concluídas num dia específico (detalhe ao tocar no calendário)."""
+        return views.completed_on(self.store.tasks(), day, list_id=self.group_filter)
 
     def view_title(self) -> str:
-        if self.current_view == "list":
-            lst = self.store.get_list(self.list_id) if self.list_id else None
-            return lst.name if lst else "Lista"
-        if self.current_view == "search":
-            return f"“{self.query}”" if self.query else "Pesquisa"
-        return SMART_VIEWS[self.current_view]
+        return "Tarefas" if self.current_view == "board" else "Calendário"
 
     def is_empty(self) -> bool:
-        return not self.visible_tasks()
+        return not self.visible_tasks() and not self.completed_today()
 
     def get(self, task_id: str) -> Task | None:
         return self.store.get_task(task_id)
@@ -94,28 +89,47 @@ class AppController:
 
     def list_name(self, list_id: str | None) -> str:
         if list_id is None:
-            return "Inbox"
+            return "Sem grupo"
         lst = self.store.get_list(list_id)
-        return lst.name if lst else "Inbox"
+        return lst.name if lst else "Sem grupo"
+
+    def active_group(self) -> TaskList | None:
+        """Grupo selecionado no filtro, ou None (Todos / Sem grupo)."""
+        if self.group_filter is ALL_GROUPS or self.group_filter is None:
+            return None
+        return self.store.get_list(self.group_filter)
 
     # --- navegação ------------------------------------------------------------
+    def set_board(self) -> None:
+        self.current_view = "board"
+
+    def set_calendar(self) -> None:
+        self.current_view = "calendar"
+
     def set_view(self, view: str) -> None:
-        if view not in SMART_VIEWS:
+        if view not in VIEWS:
             raise ValueError(f"Vista desconhecida: {view}")
         self.current_view = view
-        self.list_id = None
-        self.query = ""
 
-    def set_list_view(self, list_id: str) -> None:
-        self.store._require_list(list_id)  # valida; levanta KeyError se não existir
-        self.current_view = "list"
-        self.list_id = list_id
-        self.query = ""
+    def set_group(self, value) -> None:
+        """Filtra o board por grupo: ALL_GROUPS, None (sem grupo) ou um list_id."""
+        if value is not ALL_GROUPS and value is not None:
+            self.store._require_list(value)  # valida; KeyError se não existir
+        self.group_filter = value
 
     def set_search(self, query: str) -> None:
-        self.current_view = "search"
         self.query = query
-        self.list_id = None
+
+    def clear_search(self) -> None:
+        self.query = ""
+
+    def calendar_prev_month(self) -> None:
+        y, m = self.calendar_year, self.calendar_month
+        self.calendar_year, self.calendar_month = (y - 1, 12) if m == 1 else (y, m - 1)
+
+    def calendar_next_month(self) -> None:
+        y, m = self.calendar_year, self.calendar_month
+        self.calendar_year, self.calendar_month = (y + 1, 1) if m == 12 else (y, m + 1)
 
     # --- mutação de tarefas (persistem sempre) --------------------------------
     def add_quick(
@@ -127,18 +141,19 @@ class AppController:
     ) -> Task | None:
         """Adiciona uma tarefa rápida. Devolve None se o título for vazio.
 
-        Sem data explícita: na vista 'Hoje' a tarefa fica com data limite = hoje
-        (como em 'O Meu Dia' do Microsoft To Do); nas outras, sem data. Numa
-        vista de lista, a tarefa é criada nessa lista.
+        A data é **opcional** (sem data por defeito). Se o board estiver filtrado
+        por um grupo concreto, a tarefa é criada nesse grupo; caso contrário, sem
+        grupo.
         """
         title = title.strip()
         if not title:
             return None
-        if due_date is _UNSET:
-            due = self.today() if self.current_view == "today" else None
-        else:
-            due = due_date
-        list_id = self.list_id if self.current_view == "list" else None
+        due = None if due_date is _UNSET else due_date
+        list_id = (
+            self.group_filter
+            if self.group_filter is not ALL_GROUPS and self.group_filter is not None
+            else None
+        )
         task = self.store.add_task(
             title, due_date=due, priority=priority, list_id=list_id
         )
@@ -178,12 +193,13 @@ class AppController:
         return task
 
     def clear_completed(self) -> int:
+        """Remove definitivamente as concluídas (não exposto na UI; apaga histórico)."""
         removed = self.store.clear_completed()
         if removed:
             self._persist()
         return removed
 
-    # --- mutação de listas ----------------------------------------------------
+    # --- mutação de grupos ----------------------------------------------------
     def add_list(self, name: str, *, color: str | None = None) -> TaskList:
         lst = self.store.add_list(name, color=color)
         self._persist()
@@ -196,9 +212,9 @@ class AppController:
 
     def delete_list(self, list_id: str, *, delete_tasks: bool = False) -> None:
         self.store.delete_list(list_id, delete_tasks=delete_tasks)
-        # Se estávamos a ver essa lista, volta para a Inbox.
-        if self.current_view == "list" and self.list_id == list_id:
-            self.set_view("inbox")
+        # Se estávamos a filtrar por esse grupo, volta a "Todos".
+        if self.group_filter == list_id:
+            self.group_filter = ALL_GROUPS
         self._persist()
 
     # --- interno --------------------------------------------------------------

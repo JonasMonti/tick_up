@@ -91,8 +91,9 @@ jobs:
           body: |
             ## 📱 Tick Up ${{ github.ref_name }} — APK Android
 
-            Primeira versão nativa para Android. Lista de tarefas do dia-a-dia,
-            offline e single-user (Hoje · Próximos · Inbox · Concluídos).
+            Lista de tarefas do dia-a-dia, offline e single-user. Dois ecrãs:
+            **Tarefas** (um só board, grupo e data opcionais) e **Calendário**
+            (o que concluíste em cada dia).
 
             ### Como instalar no telemóvel
             1. Descarrega o ficheiro **`${{ steps.apk.outputs.path }}`** abaixo.

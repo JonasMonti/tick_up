@@ -1,16 +1,21 @@
 """Tick Up — interface Flet (mobile-first; corre também na web e desktop).
 
-Layout inspirado nas apps populares (Todoist, Things 3, Microsoft To Do):
-  • menu lateral: vistas inteligentes (com contagens) + listas/projetos + pesquisa
-  • barra de navegação inferior: Hoje / Próximos / Inbox / Concluídos
-  • lista de tarefas com secções (Atrasadas/Hoje, por data nos Próximos)
-  • tocar no círculo = concluir · tocar na linha = editar · deslizar = apagar (com 'Anular')
-  • adição rápida com escolha de prioridade e data
+Modelo simples (v0.3.0), com apenas dois ecrãs:
+  • **Tarefas (board):** um único sítio com todas as tarefas por fazer (grupo e
+    data opcionais) + as concluídas de hoje. Ao virar o dia, as concluídas saem
+    do board (não são apagadas — ficam no Calendário).
+  • **Calendário:** que tarefas foram feitas em cada dia do mês.
+
+Grupos são chips de filtro no topo do board (sem menu lateral). Interação numa
+linha: tocar no círculo = concluir/reabrir · tocar na linha = editar · deslizar
+= apagar (com 'Anular'). Animações subtis: troca de ecrã, navegação de mês e o
+painel do dia.
 
 Toda a lógica vive no núcleo (`tickup`) via `AppController`. Aqui só há widgets.
 """
 from __future__ import annotations
 
+import calendar as _calendar
 import os
 import sys
 from datetime import date, datetime
@@ -21,21 +26,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import flet as ft
 
-from app.controller import SMART_VIEWS, VIEWS, AppController
+from app.controller import ALL_GROUPS, AppController
 from tickup.models import Priority, Task
 
 ACCENT = ft.Colors.INDIGO
 
-# Sentinela: "o utilizador não escolheu data" (mantém o automatismo da vista Hoje).
+# Sentinela: "o utilizador não escolheu data" na barra de adição rápida.
 _UNSET = object()
-
-VIEW_ICONS = {
-    "today": ft.Icons.TODAY,
-    "upcoming": ft.Icons.UPCOMING,
-    "overdue": ft.Icons.WARNING_AMBER_ROUNDED,
-    "inbox": ft.Icons.INBOX,
-    "completed": ft.Icons.CHECK_CIRCLE_OUTLINE,
-}
 
 PRIORITY_COLOR = {
     Priority.URGENT: ft.Colors.RED_400,
@@ -44,23 +41,20 @@ PRIORITY_COLOR = {
     Priority.NONE: ft.Colors.OUTLINE,
 }
 
-EMPTY_MESSAGES = {
-    "today": ("Tudo em dia!", ft.Icons.TASK_ALT),
-    "upcoming": ("Nada nos próximos dias", ft.Icons.EVENT_AVAILABLE),
-    "overdue": ("Sem tarefas atrasadas 🎉", ft.Icons.CELEBRATION),
-    "inbox": ("Inbox vazia", ft.Icons.INBOX),
-    "completed": ("Ainda nada concluído", ft.Icons.HISTORY),
-    "list": ("Lista vazia", ft.Icons.CHECKLIST),
-    "search": ("Sem resultados", ft.Icons.SEARCH_OFF),
-}
-
 _PT_MONTHS = [
     "jan", "fev", "mar", "abr", "mai", "jun",
     "jul", "ago", "set", "out", "nov", "dez",
 ]
+_PT_MONTHS_FULL = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+]
 _PT_WEEKDAYS = [
     "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo",
 ]
+_PT_WEEKDAYS_SHORT = ["S", "T", "Q", "Q", "S", "S", "D"]  # segunda → domingo
+
+_FADE = ft.Animation(250, ft.AnimationCurve.EASE_OUT)
 
 
 def _data_path() -> Path:
@@ -103,12 +97,18 @@ def make_task_row(
     """Linha de uma tarefa: círculo (concluir) + título/subtítulo (abrir) + swipe (apagar)."""
     done = task.completed
 
-    # Círculo de conclusão (toca só aqui para concluir/reabrir).
+    # Círculo de conclusão (toca só aqui para concluir/reabrir). O ícone vive num
+    # AnimatedSwitcher para a troca feito/por-fazer ter uma pequena transição.
     circle = ft.Container(
-        ft.Icon(
-            ft.Icons.CHECK_CIRCLE if done else ft.Icons.RADIO_BUTTON_UNCHECKED,
-            color=ACCENT if done else PRIORITY_COLOR[task.priority],
-            size=24,
+        ft.AnimatedSwitcher(
+            ft.Icon(
+                ft.Icons.CHECK_CIRCLE if done else ft.Icons.RADIO_BUTTON_UNCHECKED,
+                color=ACCENT if done else PRIORITY_COLOR[task.priority],
+                size=24,
+            ),
+            transition=ft.AnimatedSwitcherTransition.SCALE,
+            duration=180,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
         ),
         on_click=lambda e: on_toggle(task.id),
         ink=True,
@@ -126,7 +126,7 @@ def make_task_row(
         overflow=ft.TextOverflow.ELLIPSIS,
     )
 
-    # Subtítulo: data + notas + lista (só os que existirem).
+    # Subtítulo: data + notas + grupo (só os que existirem).
     sub: list[ft.Control] = []
     label = _due_label(task, today)
     if label and not done:
@@ -202,8 +202,37 @@ class TickUpApp:
         self.add_priority: Priority = Priority.NONE
         self.add_due = _UNSET  # _UNSET, None ou date
 
+        # --- Board ---
+        self.chips_row = ft.Row(scroll=ft.ScrollMode.AUTO, spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         self.list_view = ft.ListView(expand=True, spacing=2, padding=ft.Padding.only(top=4, bottom=8))
         self.empty = ft.Container(alignment=ft.Alignment.CENTER, expand=True, visible=False)
+        self.board_view = ft.Container(
+            ft.Column(
+                [
+                    ft.Container(self.chips_row, padding=ft.Padding.only(left=12, right=12, top=6, bottom=2)),
+                    ft.Divider(height=1),
+                    ft.Stack([self.list_view, self.empty], expand=True),
+                ],
+                spacing=0, expand=True,
+            ),
+            expand=True,
+        )
+
+        # --- Calendário (reconstruído a cada refresh; muda de identidade para animar) ---
+        self.calendar_view = ft.Container(expand=True)
+
+        # Área central animada (troca Board ↔ Calendário e navegação de mês).
+        self.switcher = ft.AnimatedSwitcher(
+            self.board_view,
+            transition=ft.AnimatedSwitcherTransition.FADE,
+            duration=250,
+            reverse_duration=200,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_IN,
+            expand=True,
+        )
+
+        # --- Barra de adição rápida ---
         self.add_field = ft.TextField(
             hint_text="Adicionar tarefa…",
             border=ft.InputBorder.NONE,
@@ -226,10 +255,9 @@ class TickUpApp:
             ],
         )
         self.date_btn = ft.IconButton(
-            icon=ft.Icons.EVENT_OUTLINED, tooltip="Data limite",
+            icon=ft.Icons.EVENT_OUTLINED, tooltip="Data (opcional)",
             on_click=lambda e: self._open_add_datepicker(),
         )
-        self.drawer = ft.NavigationDrawer(controls=[])
 
     # --- construção do ecrã ---------------------------------------------------
     def build(self) -> None:
@@ -238,30 +266,28 @@ class TickUpApp:
         page.theme = ft.Theme(color_scheme_seed=ACCENT)
         page.theme_mode = ft.ThemeMode.SYSTEM
         page.padding = 0
-        page.drawer = self.drawer
 
         self.appbar = ft.AppBar(
-            leading=ft.IconButton(ft.Icons.MENU, on_click=self._open_drawer),
             title=ft.Text(self.c.view_title(), weight=ft.FontWeight.BOLD),
             center_title=False,
             bgcolor=ft.Colors.SURFACE,
-            actions=[
-                ft.IconButton(ft.Icons.SEARCH, tooltip="Pesquisar", on_click=self._open_search),
-            ],
+            actions=[],
         )
         page.appbar = self.appbar
 
-        # IMPORTANTE: a NavigationBar tem de ter ≥2 destinos já no primeiro
-        # render (o Flutter rebenta com a barra vazia → ecrã preto), por isso
-        # construímos os destinos aqui e não só no refresh().
+        # A NavigationBar tem de ter ≥2 destinos já no primeiro render (o Flutter
+        # rebenta com a barra vazia → ecrã preto), por isso há sempre 2.
         self.nav = ft.NavigationBar(
             selected_index=0,
             on_change=self._on_nav,
-            destinations=self._nav_destinations(),
+            destinations=[
+                ft.NavigationBarDestination(icon=ft.Icon(ft.Icons.CHECKLIST), label="Tarefas"),
+                ft.NavigationBarDestination(icon=ft.Icon(ft.Icons.CALENDAR_MONTH), label="Calendário"),
+            ],
         )
         page.navigation_bar = self.nav
 
-        add_bar = ft.Container(
+        self.add_bar = ft.Container(
             ft.Row(
                 [self.prio_btn, self.date_btn, self.add_field,
                  ft.IconButton(ft.Icons.ARROW_UPWARD, icon_color=ACCENT,
@@ -271,112 +297,69 @@ class TickUpApp:
             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
             padding=ft.Padding.symmetric(horizontal=8, vertical=2),
         )
-        self.add_bar = add_bar
 
         page.add(
             ft.SafeArea(
-                ft.Column(
-                    [ft.Stack([self.list_view, self.empty], expand=True), add_bar],
-                    expand=True, spacing=0,
-                ),
+                ft.Column([self.switcher, self.add_bar], expand=True, spacing=0),
                 expand=True,
             )
         )
-        self._build_drawer()  # nunca deixar o drawer vazio antes do primeiro render
-        self.refresh()
-
-    # --- menu lateral ----------------------------------------------------------
-    def _build_drawer(self) -> None:
-        counts = self.c.counts()
-        items: list[ft.Control] = [
-            ft.Container(
-                ft.Row([
-                    ft.Icon(ft.Icons.CHECK_CIRCLE, color=ACCENT),
-                    ft.Text("Tick Up", size=20, weight=ft.FontWeight.BOLD),
-                ], spacing=10),
-                padding=ft.Padding.only(left=20, top=20, bottom=8, right=20),
-            ),
-        ]
-
-        def smart_tile(key: str) -> ft.Control:
-            n = counts.get(key, 0)
-            active = self.c.current_view == key
-            trailing = (ft.Text(str(n), color=ft.Colors.ON_SURFACE_VARIANT)
-                        if n and key != "completed" else None)
-            return ft.ListTile(
-                leading=ft.Icon(VIEW_ICONS[key],
-                                color=ACCENT if active else ft.Colors.ON_SURFACE_VARIANT),
-                title=ft.Text(SMART_VIEWS[key],
-                              weight=ft.FontWeight.BOLD if active else ft.FontWeight.W_400),
-                trailing=trailing,
-                bgcolor=ft.Colors.with_opacity(0.08, ACCENT) if active else None,
-                on_click=lambda e, k=key: self._go_smart(k),
-            )
-
-        for key in ("today", "upcoming", "overdue", "inbox", "completed"):
-            items.append(smart_tile(key))
-
-        items.append(ft.Divider())
-        items.append(ft.Container(
-            ft.Text("LISTAS", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
-            padding=ft.Padding.only(left=20, top=4, bottom=4)))
-
-        for lst in self.c.lists():
-            active = self.c.current_view == "list" and self.c.list_id == lst.id
-            items.append(ft.ListTile(
-                leading=ft.Icon(ft.Icons.CIRCLE, color=lst.color, size=14),
-                title=ft.Text(lst.name, weight=ft.FontWeight.BOLD if active else ft.FontWeight.W_400),
-                bgcolor=ft.Colors.with_opacity(0.08, ACCENT) if active else None,
-                on_click=lambda e, lid=lst.id: self._go_list(lid),
-                trailing=ft.IconButton(ft.Icons.MORE_VERT, icon_size=18,
-                                       on_click=lambda e, l=lst: self._open_list_menu(l)),
-            ))
-
-        items.append(ft.ListTile(
-            leading=ft.Icon(ft.Icons.ADD, color=ACCENT),
-            title=ft.Text("Nova lista", color=ACCENT),
-            on_click=lambda e: self._open_new_list(),
-        ))
-        self.drawer.controls = items
-
-    async def _open_drawer(self, e) -> None:
-        self._build_drawer()
-        await self.page.show_drawer()
-
-    async def _go_smart(self, key: str) -> None:
-        self.c.set_view(key)
-        await self.page.close_drawer()
-        self._sync_chrome()
-        self.refresh()
-
-    async def _go_list(self, list_id: str) -> None:
-        self.c.set_list_view(list_id)
-        await self.page.close_drawer()
-        self._sync_chrome()
         self.refresh()
 
     # --- navegação inferior ----------------------------------------------------
     def _on_nav(self, e) -> None:
-        key = list(VIEWS)[e.control.selected_index]
-        self.c.set_view(key)
+        if e.control.selected_index == 0:
+            self.c.set_board()
+        else:
+            self.c.set_calendar()
         self._sync_chrome()
         self.refresh()
 
     def _sync_chrome(self) -> None:
-        """Atualiza título, ações e seleção da barra inferior conforme a vista."""
-        self.appbar.title.value = self.c.view_title()
+        """Atualiza título, ações da appbar e barra de adição conforme o ecrã."""
         view = self.c.current_view
-        # Ação 'limpar concluídos' só na vista Concluídos.
-        actions = [ft.IconButton(ft.Icons.SEARCH, tooltip="Pesquisar", on_click=self._open_search)]
-        if view == "completed":
-            actions.append(ft.IconButton(ft.Icons.DELETE_SWEEP_OUTLINED,
-                                         tooltip="Limpar concluídos",
-                                         on_click=lambda e: self._clear_completed()))
+        self.appbar.title.value = self.c.view_title()
+        actions: list[ft.Control] = []
+        if view == "board":
+            actions.append(ft.IconButton(ft.Icons.SEARCH, tooltip="Pesquisar",
+                                         on_click=self._open_search))
+            grp = self.c.active_group()
+            if grp is not None:
+                actions.append(ft.IconButton(ft.Icons.EDIT_OUTLINED, tooltip="Editar grupo",
+                                             on_click=lambda e, g=grp: self._open_group_menu(g)))
         self.appbar.actions = actions
-        # Esconder a barra de adição em Concluídos/Pesquisa.
-        self.add_bar.visible = view not in ("completed", "search")
-        if view in VIEWS:
-            self.nav.selected_index = list(VIEWS).index(view)
+        self.add_bar.visible = view == "board"
+        self.nav.selected_index = 0 if view == "board" else 1
+
+    # --- chips de grupo --------------------------------------------------------
+    def _build_chips(self) -> None:
+        chips: list[ft.Control] = []
+
+        def chip(label: str, selected: bool, on_click) -> ft.Chip:
+            return ft.Chip(
+                label=ft.Text(label),
+                selected=selected,
+                show_checkmark=False,
+                selected_color=ft.Colors.with_opacity(0.18, ACCENT),
+                on_click=on_click,
+            )
+
+        chips.append(chip("Todos", self.c.group_filter is ALL_GROUPS,
+                          lambda e: self._go_group(ALL_GROUPS)))
+        for lst in self.c.lists():
+            chips.append(chip(lst.name, self.c.group_filter == lst.id,
+                              lambda e, lid=lst.id: self._go_group(lid)))
+        chips.append(ft.Chip(
+            label=ft.Text("Novo"),
+            leading=ft.Icon(ft.Icons.ADD, size=18),
+            on_click=lambda e: self._open_new_group(),
+        ))
+        self.chips_row.controls = chips
+
+    def _go_group(self, value) -> None:
+        self.c.set_group(value)
+        self._sync_chrome()
+        self.refresh()
 
     # --- adição rápida ---------------------------------------------------------
     def _set_add_priority(self, p: Priority) -> None:
@@ -461,13 +444,12 @@ class TickUpApp:
             ft.TextButton("Hoje", on_click=lambda e: set_due(self.c.today())),
             ft.TextButton("Limpar", on_click=lambda e: set_due(None)),
         ], wrap=True)
-        render_due_initial = _fmt_date(task.due_date) if task.due_date else "Sem data"
-        due_text.value = render_due_initial
+        due_text.value = _fmt_date(task.due_date) if task.due_date else "Sem data"
 
-        list_dd = ft.Dropdown(
-            label="Lista",
+        group_dd = ft.Dropdown(
+            label="Grupo",
             value=task.list_id or "",
-            options=[ft.DropdownOption(key="", text="Inbox")]
+            options=[ft.DropdownOption(key="", text="Sem grupo")]
             + [ft.DropdownOption(key=l.id, text=l.name) for l in self.c.lists()],
         )
 
@@ -483,7 +465,7 @@ class TickUpApp:
                 notes=notes_f.value,
                 priority=Priority(int(prio_seg.selected[0])),
                 due_date=chosen["due"],
-                list_id=(list_dd.value or None),
+                list_id=(group_dd.value or None),
             )
             self.page.pop_dialog()
             self.refresh()
@@ -503,9 +485,9 @@ class TickUpApp:
                     title_f, notes_f,
                     ft.Text("Prioridade", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                     prio_seg,
-                    ft.Text("Data limite", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text("Data", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                     due_row,
-                    list_dd,
+                    group_dd,
                     ft.FilledButton("Guardar", icon=ft.Icons.CHECK, on_click=save,
                                     width=10000, height=46),
                 ], spacing=12, tight=True, scroll=ft.ScrollMode.AUTO),
@@ -541,41 +523,47 @@ class TickUpApp:
     # --- pesquisa --------------------------------------------------------------
     def _open_search(self, e) -> None:
         field = ft.TextField(hint_text="Pesquisar tarefas…", autofocus=True,
+                             value=self.c.query,
                              on_submit=lambda ev: do_search())
 
         def do_search():
-            q = field.value.strip()
+            self.c.set_search(field.value.strip())
             self.page.pop_dialog()
-            if q:
-                self.c.set_search(q)
-                self._sync_chrome()
-                self.refresh()
+            self._sync_chrome()
+            self.refresh()
+
+        def clear():
+            self.c.clear_search()
+            self.page.pop_dialog()
+            self._sync_chrome()
+            self.refresh()
 
         self.page.show_dialog(ft.AlertDialog(
             title=ft.Text("Pesquisar"),
             content=field,
             actions=[
-                ft.TextButton("Cancelar", on_click=lambda ev: self.page.pop_dialog()),
+                ft.TextButton("Limpar", on_click=lambda ev: clear()),
                 ft.FilledButton("Pesquisar", on_click=lambda ev: do_search()),
             ],
         ))
 
-    # --- listas ----------------------------------------------------------------
-    def _open_new_list(self) -> None:
-        field = ft.TextField(label="Nome da lista", autofocus=True,
+    # --- grupos ----------------------------------------------------------------
+    def _open_new_group(self) -> None:
+        field = ft.TextField(label="Nome do grupo", autofocus=True,
                              on_submit=lambda e: create())
 
         def create():
             name = field.value.strip()
             if not name:
                 return
-            self.c.add_list(name)
+            lst = self.c.add_list(name)
             self.page.pop_dialog()
-            self._build_drawer()
-            self.page.update()
+            self.c.set_group(lst.id)  # passa logo a filtrar pelo novo grupo
+            self._sync_chrome()
+            self.refresh()
 
         self.page.show_dialog(ft.AlertDialog(
-            title=ft.Text("Nova lista"),
+            title=ft.Text("Novo grupo"),
             content=field,
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: self.page.pop_dialog()),
@@ -583,7 +571,7 @@ class TickUpApp:
             ],
         ))
 
-    def _open_list_menu(self, lst) -> None:
+    def _open_group_menu(self, lst) -> None:
         def rename():
             self.page.pop_dialog()
             field = ft.TextField(label="Nome", value=lst.name, autofocus=True,
@@ -593,10 +581,11 @@ class TickUpApp:
                 if field.value.strip():
                     self.c.rename_list(lst.id, field.value)
                 self.page.pop_dialog()
-                self._refresh_after_list_change()
+                self._sync_chrome()
+                self.refresh()
 
             self.page.show_dialog(ft.AlertDialog(
-                title=ft.Text("Renomear lista"), content=field,
+                title=ft.Text("Renomear grupo"), content=field,
                 actions=[ft.TextButton("Cancelar", on_click=lambda e: self.page.pop_dialog()),
                          ft.FilledButton("Guardar", on_click=lambda e: do_rename())],
             ))
@@ -604,11 +593,12 @@ class TickUpApp:
         def delete():
             self.c.delete_list(lst.id, delete_tasks=False)
             self.page.pop_dialog()
-            self._refresh_after_list_change()
+            self._sync_chrome()
+            self.refresh()
 
         self.page.show_dialog(ft.AlertDialog(
             title=ft.Text(lst.name),
-            content=ft.Text("As tarefas voltam para a Inbox se apagares a lista."),
+            content=ft.Text("As tarefas ficam sem grupo se apagares o grupo."),
             actions=[
                 ft.TextButton("Renomear", on_click=lambda e: rename()),
                 ft.TextButton("Apagar", style=ft.ButtonStyle(color=ft.Colors.RED_400),
@@ -617,85 +607,186 @@ class TickUpApp:
             ],
         ))
 
-    def _refresh_after_list_change(self) -> None:
-        self._build_drawer()
-        self._sync_chrome()
-        self.refresh()
-
-    def _clear_completed(self) -> None:
-        n = self.c.clear_completed()
-        self.refresh()
-        self.page.show_dialog(ft.SnackBar(
-            content=ft.Text(f"{n} tarefa(s) removida(s)" if n else "Nada para limpar"),
-            behavior=ft.SnackBarBehavior.FLOATING,
-        ))
-
     # --- render ----------------------------------------------------------------
-    def _nav_destinations(self) -> list[ft.Control]:
-        counts = self.c.counts()
-        dests = []
-        for key, label in VIEWS.items():
-            n = counts.get(key, 0)
-            icon = ft.Icon(VIEW_ICONS[key])
-            if n and key != "completed":
-                icon.badge = ft.Badge(label=str(n))
-            dests.append(ft.NavigationBarDestination(icon=icon, label=label))
-        return dests
-
     def refresh(self) -> None:
+        if self.c.current_view == "board":
+            self._render_board()
+            self.switcher.content = self.board_view
+        else:
+            self.switcher.content = self._build_calendar()
+        self.page.update()
+
+    def _render_board(self) -> None:
         today = self.c.today()
-        view = self.c.current_view
-        self.nav.destinations = self._nav_destinations()
+        self._build_chips()
 
         rows: list[ft.Control] = []
+        show_group_label = self.c.group_filter is ALL_GROUPS
 
-        def add_rows(tasks, *, with_list_label=True):
+        def add_rows(tasks):
             for t in tasks:
-                lbl = None
-                if with_list_label and t.list_id is not None and view != "list":
-                    lbl = self.c.list_name(t.list_id)
+                lbl = self.c.list_name(t.list_id) if (show_group_label and t.list_id) else None
                 rows.append(make_task_row(
                     t, today, on_toggle=self._on_toggle, on_open=self._open_detail,
                     on_delete=self._on_delete, list_label=lbl,
                 ))
 
-        if view == "today":
-            atrasadas, hoje = self.c.overdue_in_today()
-            if atrasadas:
-                rows.append(_section_header(f"Atrasadas · {len(atrasadas)}", color=ft.Colors.RED_400))
-                add_rows(atrasadas)
-            if hoje:
-                rows.append(_section_header("Hoje"))
-                add_rows(hoje)
-        elif view == "upcoming":
-            from tickup.views import group_by_due_date
-            tasks = self.c.visible_tasks()
-            groups = group_by_due_date(tasks)
-            for d in sorted(k for k in groups if k is not None):
-                delta = (d - today).days
-                if delta == 1:
-                    head = "Amanhã"
-                elif delta < 7:
-                    head = f"{_PT_WEEKDAYS[d.weekday()].capitalize()}, {_fmt_date(d)}"
-                else:
-                    head = _fmt_date(d)
-                rows.append(_section_header(head))
-                add_rows(groups[d])
-        else:
-            add_rows(self.c.visible_tasks())
+        active = self.c.visible_tasks()
+        add_rows(active)
+
+        done_today = self.c.completed_today()
+        if done_today:
+            rows.append(_section_header(f"Feitas hoje · {len(done_today)}"))
+            add_rows(done_today)
 
         self.list_view.controls = rows
         has_rows = bool(rows)
         if not has_rows:
-            msg, icon = EMPTY_MESSAGES.get(view, ("Vazio", ft.Icons.INBOX))
+            if self.c.query.strip():
+                msg, icon = ("Sem resultados", ft.Icons.SEARCH_OFF)
+            else:
+                msg, icon = ("Tudo em dia! Adiciona uma tarefa.", ft.Icons.TASK_ALT)
             self.empty.content = ft.Column(
                 [ft.Icon(icon, size=56, color=ft.Colors.OUTLINE),
-                 ft.Text(msg, size=18, color=ft.Colors.ON_SURFACE_VARIANT)],
+                 ft.Text(msg, size=18, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER)],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8,
             )
         self.empty.visible = not has_rows
         self.list_view.visible = has_rows
-        self.page.update()
+
+    # --- calendário ------------------------------------------------------------
+    def _build_calendar(self) -> ft.Control:
+        today = self.c.today()
+        year, month = self.c.calendar_year, self.c.calendar_month
+        by_day = self.c.calendar_days()
+
+        header = ft.Row(
+            [
+                ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda e: self._calendar_nav(-1)),
+                ft.Text(f"{_PT_MONTHS_FULL[month - 1]} {year}", size=18,
+                        weight=ft.FontWeight.BOLD, expand=True, text_align=ft.TextAlign.CENTER),
+                ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda e: self._calendar_nav(1)),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        )
+
+        weekday_row = ft.Row(
+            [ft.Container(ft.Text(w, size=12, weight=ft.FontWeight.BOLD,
+                                  color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER),
+                          expand=True, alignment=ft.Alignment.CENTER)
+             for w in _PT_WEEKDAYS_SHORT],
+        )
+
+        cal = _calendar.Calendar(firstweekday=0)  # segunda-feira
+        weeks: list[ft.Control] = []
+        for week in cal.monthdatescalendar(year, month):
+            cells: list[ft.Control] = []
+            for day in week:
+                cells.append(self._calendar_cell(day, month, today, by_day.get(day, [])))
+            weeks.append(ft.Row(cells, spacing=4))
+
+        total = sum(len(v) for v in by_day.values())
+        footer = ft.Container(
+            ft.Text(
+                f"{total} tarefa(s) concluída(s) este mês" if total else "Nada concluído este mês",
+                size=12, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER,
+            ),
+            padding=ft.Padding.only(top=12),
+            alignment=ft.Alignment.CENTER,
+        )
+
+        return ft.Container(
+            ft.Column(
+                [header, ft.Divider(height=1), weekday_row, *weeks, footer],
+                spacing=6, scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            expand=True,
+        )
+
+    def _calendar_cell(self, day: date, month: int, today: date, done: list[Task]) -> ft.Control:
+        in_month = day.month == month
+        is_today = day == today
+        has_done = bool(done)
+
+        children: list[ft.Control] = [
+            ft.Text(
+                str(day.day), size=14,
+                weight=ft.FontWeight.BOLD if is_today else ft.FontWeight.W_400,
+                color=(ACCENT if is_today else
+                       (ft.Colors.ON_SURFACE if in_month else ft.Colors.with_opacity(0.35, ft.Colors.ON_SURFACE))),
+            )
+        ]
+        if has_done and in_month:
+            children.append(ft.Container(
+                ft.Text(str(len(done)), size=10, color=ft.Colors.WHITE,
+                        weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                bgcolor=ACCENT, width=16, height=16, border_radius=8,
+                alignment=ft.Alignment.CENTER,
+            ))
+        else:
+            children.append(ft.Container(height=16))
+
+        cell = ft.Container(
+            ft.Column(children, spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            expand=True,
+            height=52,
+            padding=ft.Padding.symmetric(vertical=4),
+            border_radius=10,
+            bgcolor=ft.Colors.with_opacity(0.08, ACCENT) if is_today else None,
+            alignment=ft.Alignment.CENTER,
+            ink=has_done and in_month,
+            on_click=(lambda e, d=day: self._open_day_detail(d)) if (has_done and in_month) else None,
+            animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+        )
+        return cell
+
+    def _calendar_nav(self, direction: int) -> None:
+        if direction < 0:
+            self.c.calendar_prev_month()
+        else:
+            self.c.calendar_next_month()
+        self.refresh()
+
+    def _open_day_detail(self, day: date) -> None:
+        tasks = self.c.completed_on(day)
+        weekday = _PT_WEEKDAYS[day.weekday()].capitalize()
+        rows: list[ft.Control] = []
+        for t in tasks:
+            grp = self.c.list_name(t.list_id) if t.list_id else None
+            sub: list[ft.Control] = []
+            if t.completed_at is not None:
+                hhmm = t.completed_at.astimezone().strftime("%H:%M")
+                sub.append(ft.Text(hhmm, size=12, color=ft.Colors.ON_SURFACE_VARIANT))
+            if grp:
+                sub.append(ft.Row(
+                    [ft.Icon(ft.Icons.LABEL_OUTLINE, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
+                     ft.Text(grp, size=12, color=ft.Colors.ON_SURFACE_VARIANT)],
+                    spacing=3, tight=True))
+            col = [ft.Text(t.title, size=15,
+                           style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH),
+                           color=ft.Colors.ON_SURFACE_VARIANT)]
+            if sub:
+                col.append(ft.Row(sub, spacing=12))
+            rows.append(ft.Row(
+                [ft.Icon(ft.Icons.CHECK_CIRCLE, color=ACCENT, size=20),
+                 ft.Column(col, spacing=2, expand=True)],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10,
+            ))
+
+        body = ft.Column(
+            [
+                ft.Text(f"{weekday}, {_fmt_date(day)}", size=18, weight=ft.FontWeight.BOLD),
+                ft.Text(f"{len(tasks)} concluída(s)", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.Divider(),
+                *rows,
+            ],
+            spacing=10, tight=True, scroll=ft.ScrollMode.AUTO,
+        )
+        self.page.show_dialog(ft.BottomSheet(
+            ft.Container(body, padding=20),
+            show_drag_handle=True,
+        ))
 
     def _on_toggle(self, task_id: str) -> None:
         self.c.toggle(task_id)
